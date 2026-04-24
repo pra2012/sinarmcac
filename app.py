@@ -48,6 +48,9 @@ with col1:
         st.info("Dados do Processo")
         protocolo = st.text_input("Número do Protocolo SINARMCAC/SISGCORP*")
         tipo = st.selectbox("Tipo de Processo", ["Aquisição", "Registro (CRAF)", "Transferência", "Porte", "Guia de Tráfego", "Renovação"])
+        
+        # NOVOS CAMPOS DE DATA
+        data_criacao = st.date_input("Data de Criação do Processo (Data de Entrada)*", max_value=datetime.date.today())
         data_protocolo = st.date_input("Data do protocolo (compensação GRU)*", max_value=datetime.date.today())
         
         st.info("Localização")
@@ -59,9 +62,8 @@ with col1:
         st.info("Relato e Provas")
         relato = st.text_area("Relato Detalhado do Problema*")
         
-        # MÚLTIPLOS ARQUIVOS: O parâmetro 'accept_multiple_files' permite o upload em massa
         arquivos_anexos = st.file_uploader(
-            "Anexo de Prova Documental (Selecione um ou mais arquivos)", 
+            "Anexo de Prova Documental (Prints, PDFs, Emails)", 
             type=['png', 'jpg', 'jpeg', 'pdf'], 
             accept_multiple_files=True
         )
@@ -71,33 +73,32 @@ with col1:
         if submitted:
             if all([nome, cpf, email, protocolo, relato]):
                 hoje = datetime.date.today()
+                # O cálculo de dias de espera permanece baseado na compensação da GRU (prazo legal corre após pagamento)
                 dias = (hoje - data_protocolo).days
                 
-                # Processamento de cada arquivo subido
+                # Processamento de arquivos
                 caminhos_arquivos = []
                 for idx, arquivo in enumerate(arquivos_anexos):
-                    # Gera um nome único: PROTOCOLO_SEQUENCIA_NOMEARQUIVO
                     nome_seguro = f"{protocolo}_{idx}_{arquivo.name}"
                     file_path = os.path.join(UPLOAD_DIR, nome_seguro)
                     with open(file_path, "wb") as f:
                         f.write(arquivo.getbuffer())
                     caminhos_arquivos.append(nome_seguro)
                 
-                # Transforma a lista de arquivos em uma string separada por vírgulas para o CSV
-                anexos_string = ", ".join(caminhos_arquivos)
-                
                 novo_registro = {
                     'nome': nome, 'cpf': cpf, 'email': email,
                     'protocolo': protocolo, 'tipo': tipo,
-                    'data_protocolo': data_protocolo, 'dias_espera': dias,
+                    'data_entrada': data_criacao, # Campo Adicionado
+                    'data_protocolo': data_protocolo, 
+                    'dias_espera': dias,
                     'delegacia': delegacia, 'estado': estado, 'cidade': cidade,
                     'servidor': servidor, 'relato': relato,
-                    'anexos': anexos_string
+                    'anexos': ", ".join(caminhos_arquivos)
                 }
                 
                 df_reclamacoes = pd.concat([df_reclamacoes, pd.DataFrame([novo_registro])], ignore_index=True)
                 save_data(df_reclamacoes)
-                st.success(f"Protocolo registrado! {len(caminhos_arquivos)} arquivo(s) salvos com sucesso.")
+                st.success(f"Protocolo registrado com sucesso!")
                 st.rerun()
             else:
                 st.error("Por favor, preencha todos os campos obrigatórios (*).")
@@ -105,9 +106,7 @@ with col1:
 with col2:
     st.markdown("### 📊 Estatísticas e Transparência")
     if not df_reclamacoes.empty:
-        # Converter coluna de dias para numérico caso necessário
         df_reclamacoes['dias_espera'] = pd.to_numeric(df_reclamacoes['dias_espera'])
-        
         df_grafico = df_reclamacoes.groupby('estado')['dias_espera'].mean().reset_index()
         fig = px.bar(df_grafico, x='estado', y='dias_espera', text_auto='.0f',
                      title="Média de Dias de Atraso por UF",
@@ -116,8 +115,7 @@ with col2:
         st.plotly_chart(fig, use_container_width=True)
         
         st.markdown("### 📋 Histórico Recente")
-        # Exibe apenas dados que não são sensíveis publicamente
         view_df = df_reclamacoes[['protocolo', 'tipo', 'estado', 'dias_espera']].tail(10)
         st.table(view_df)
     else:
-        st.info("Nenhuma reclamação registrada até o momento.")
+        st.info("Aguardando registros.")
